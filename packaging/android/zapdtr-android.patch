@@ -1,0 +1,14 @@
+diff --git a/ZAPD/CrashHandler.cpp b/ZAPD/CrashHandler.cpp
+index 6c05733..c4d1536 100644
+--- a/ZAPD/CrashHandler.cpp
++++ b/ZAPD/CrashHandler.cpp
+@@ -1,7 +1,8 @@
+ #include "CrashHandler.h"
+ #include "Utils/StringHelper.h"
+ 
+-#if __has_include(<unistd.h>)
++// Android bionic only has execinfo.h (backtrace) from API 33; use the portable path there.
++#if __has_include(<unistd.h>) && !defined(__ANDROID__)
+ #define HAS_POSIX 1
+ #else
+ #define HAS_POSIX 0

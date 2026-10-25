@@ -85,8 +85,8 @@ void CutsceneManager_ResetRunState(void) {
     sCutsceneMgr = clean;
     sSceneCutsceneList = NULL;
     sSceneCutsceneCount = 0;
-    bzero(sWaitingCutsceneList, sizeof(sWaitingCutsceneList));
-    bzero(sNextCutsceneList, sizeof(sNextCutsceneList));
+    memset(sWaitingCutsceneList, 0, sizeof(sWaitingCutsceneList));
+    memset(sNextCutsceneList, 0, sizeof(sNextCutsceneList));
 
     fprintf(stderr, "ZELDA3D CORE: cutscene manager reset -- previous run left a %d-entry scene cutscene list.\n",
             inherited);

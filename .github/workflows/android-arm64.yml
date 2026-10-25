@@ -20,7 +20,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Init build submodules (no decomp reference submodules)
-        run: git submodule update --init Shipwright/ZAPDTR Shipwright/libultraship/extern/StormLib
+        run: |
+          git submodule update --init Shipwright/ZAPDTR Shipwright/libultraship/extern/StormLib
+          git -C Shipwright/ZAPDTR apply ../../packaging/android/zapdtr-android.patch
 
       - name: Pinned Lucent source
         run: |

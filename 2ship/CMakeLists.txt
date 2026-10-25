@@ -321,6 +321,13 @@ target_precompile_headers(mm_settings INTERFACE
 ################################################################################
 add_dependencies(mm_lib libultraship ZAPDLib)
 
+# Android's bionic declares memcpy/memset as overloadable fortified inlines when _FORTIFY_SOURCE is
+# on (the NDK default), and those reject the decomp's integer-address arguments outright. The N64
+# code relies on plain C conversions there, so build it without fortify on Android.
+if (CMAKE_SYSTEM_NAME STREQUAL "Android")
+    target_compile_options(mm_lib PRIVATE -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0)
+endif()
+
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 find_package(Ogg REQUIRED)
