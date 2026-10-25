@@ -97,7 +97,10 @@ target_link_libraries(libultraship
 # OpenGL was formerly linked transitively via the (removed) ImGui target; a couple of renderer
 # paths (e.g. gfx_sdl3.cpp frame-dump glReadPixels) still need it. find_package(OpenGL) is in
 # common.cmake.
-if(OPENGL_opengl_LIBRARY)
+if (CMAKE_SYSTEM_NAME STREQUAL "Android")
+    # No desktop GL on Android; glReadPixels comes from GLES.
+    target_link_libraries(libultraship PUBLIC GLESv3)
+elseif(OPENGL_opengl_LIBRARY)
     target_link_libraries(libultraship PUBLIC ${OPENGL_opengl_LIBRARY})
 elseif(OPENGL_gl_LIBRARY)
     target_link_libraries(libultraship PUBLIC ${OPENGL_gl_LIBRARY})
