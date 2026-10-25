@@ -46,11 +46,12 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     include(cmake/dependencies/windows-vcpkg.cmake)
 endif()
 
-include(cmake/dependencies/common.cmake)
-
+# Android before common.cmake: common.cmake links ImGui to SDL3::SDL3, which android.cmake finds.
 if (CMAKE_SYSTEM_NAME STREQUAL "Android")
 	include(cmake/dependencies/android.cmake)
 endif()
+
+include(cmake/dependencies/common.cmake)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     include(cmake/dependencies/mac.cmake)

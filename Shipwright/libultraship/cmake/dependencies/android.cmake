@@ -3,6 +3,6 @@
 # the engine, ImGui backends and RmlUi integration are all SDL3. common.cmake and src/CMakeLists.txt
 # find_package() everything they need, so nothing extra is required here.
 
-# common.cmake links ImGui to SDL3::SDL3 right after this file, so the target must exist already
+# common.cmake (included after this file) links ImGui to SDL3::SDL3, so the target must exist first
 # (mac.cmake does the same).
 find_package(SDL3 REQUIRED)
