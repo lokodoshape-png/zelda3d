@@ -275,8 +275,8 @@ int RunSequence(const std::string& spec) {
             printf("  %-4s FAILED to load (see above); sequence stops here\n", id.c_str());
             break;
         }
-        if (getenv("ZELDA3D_CORE_DATA_DIR") != nullptr) {
-            Ship::Context::SetAppBundlePath(coreDataDir);
+        if (const char* dataDir = getenv("ZELDA3D_CORE_DATA_DIR"); dataDir != nullptr) {
+            Ship::Context::SetAppBundlePath(dataDir);
         } else if (Dl_info info; dladdr(reinterpret_cast<void*>(core->run), &info) != 0 && info.dli_fname != nullptr) {
             std::string dir = info.dli_fname;
             char* buf = dir.data();
