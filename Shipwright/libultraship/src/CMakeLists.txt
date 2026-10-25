@@ -164,8 +164,8 @@ endif()
 # custom Vulkan backend were all removed (P4). The per-combiner shaders are still generated as GLSL
 # at runtime and compiled to SPIR-V with glslang (SDL3 GPU consumes SPIR-V on its Vulkan/Metal/D3D12
 # driver) — so glslang stays a hard dependency; the Vulkan loader / MoltenVK are NOT needed. Desktop
-# Linux / macOS only (not GLES/iOS/Android).
-if (NOT USE_OPENGLES AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS" AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+# Linux / macOS / Android (Vulkan driver); not GLES/iOS.
+if (NOT USE_OPENGLES AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     # find_package(glslang) exposes the imported targets glslang::glslang / glslang::SPIRV /
     # the default resource limits used by the runtime GLSL->SPIR-V compile.
     find_package(glslang QUIET)

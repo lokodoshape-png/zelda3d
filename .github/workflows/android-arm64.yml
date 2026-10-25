@@ -1,0 +1,87 @@
+name: Android ARM64 (MM core)
+
+# Cross-compiles the MM game core (2ship + 2ship3d + libultraship) for Android arm64-v8a with the
+# NDK and vcpkg. This is the first step of the Android port: it only builds native libraries, no APK.
+# No ROM or game asset is used or produced here.
+
+on:
+  push:
+    branches: [android-arm64]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    env:
+      VCPKG_TRIPLET: arm64-android
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-cache
+      ANDROID_PLATFORM: android-29
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Init build submodules (no decomp reference submodules)
+        run: git submodule update --init Shipwright/ZAPDTR Shipwright/libultraship/extern/StormLib
+
+      - name: Pinned Lucent source
+        run: |
+          git clone --no-checkout https://github.com/SomeoneIsWorking/lucent.git build/deps/lucent-source
+          git -C build/deps/lucent-source checkout --detach cac301db85b1f0aabdec8bdcf31a13cae560d8e2
+
+      - name: Host tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build ccache
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: vcpkg-cache
+          key: vcpkg-arm64-android-${{ hashFiles('.github/workflows/android-arm64.yml') }}
+          restore-keys: vcpkg-arm64-android-
+
+      - name: vcpkg dependencies
+        run: |
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          echo "NDK: $ANDROID_NDK_HOME"
+          git -C "$VCPKG_INSTALLATION_ROOT" pull --ff-only || true
+          "$VCPKG_INSTALLATION_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          "$VCPKG_INSTALLATION_ROOT/vcpkg" install --triplet "$VCPKG_TRIPLET" \
+            "sdl3[vulkan]" libzip nlohmann-json tinyxml2 spdlog libogg libvorbis opus opusfile \
+            freetype glslang libpng zlib bzip2 \
+            || (find "$VCPKG_INSTALLATION_ROOT/buildtrees" -name '*-out.log' -newer "$VCPKG_INSTALLATION_ROOT/README.md" -exec tail -n 40 {} \; ; exit 1)
+
+      - name: Configure
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          cmake -S . -B build-android -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+            -DVCPKG_TARGET_TRIPLET="$VCPKG_TRIPLET" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM="$ANDROID_PLATFORM" \
+            -DANDROID_STL=c++_shared \
+            2>&1 | tee configure.log
+
+      - name: Build mm_core (keep going to collect every error)
+        run: |
+          set -o pipefail
+          cmake --build build-android --target mm_core -j4 -- -k 0 2>&1 | tee build.log
+
+      - name: Error summary
+        if: always()
+        run: |
+          grep -E "error:|Error |undefined reference|FAILED:" build.log configure.log 2>/dev/null | sort | uniq -c | sort -rn | head -100 || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-arm64-logs
+          path: |
+            configure.log
+            build.log
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: android-arm64-libs
+          path: build-android/**/*.so
