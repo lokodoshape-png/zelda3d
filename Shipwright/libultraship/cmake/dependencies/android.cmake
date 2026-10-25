@@ -2,3 +2,7 @@
 # windows-vcpkg.cmake. The old FetchContent path here pulled SDL2, which this tree no longer uses:
 # the engine, ImGui backends and RmlUi integration are all SDL3. common.cmake and src/CMakeLists.txt
 # find_package() everything they need, so nothing extra is required here.
+
+# common.cmake links ImGui to SDL3::SDL3 right after this file, so the target must exist already
+# (mac.cmake does the same).
+find_package(SDL3 REQUIRED)
