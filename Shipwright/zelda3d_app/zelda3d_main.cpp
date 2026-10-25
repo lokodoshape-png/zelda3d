@@ -32,6 +32,10 @@
 #include <vector>
 
 #include <SDL3/SDL.h>
+#ifdef __ANDROID__
+// SDL's Java activity starts the game by calling SDL_main in libmain.so; this renames main() to it.
+#include <SDL3/SDL_main.h>
+#endif
 #include <dlfcn.h>
 #include <libgen.h>
 #include <unistd.h>
@@ -271,7 +275,9 @@ int RunSequence(const std::string& spec) {
             printf("  %-4s FAILED to load (see above); sequence stops here\n", id.c_str());
             break;
         }
-        if (Dl_info info; dladdr(reinterpret_cast<void*>(core->run), &info) != 0 && info.dli_fname != nullptr) {
+        if (getenv("ZELDA3D_CORE_DATA_DIR") != nullptr) {
+            Ship::Context::SetAppBundlePath(coreDataDir);
+        } else if (Dl_info info; dladdr(reinterpret_cast<void*>(core->run), &info) != 0 && info.dli_fname != nullptr) {
             std::string dir = info.dli_fname;
             char* buf = dir.data();
             Ship::Context::SetAppBundlePath(dirname(buf));
@@ -295,6 +301,17 @@ int RunSequence(const std::string& spec) {
 
     printf("zelda3d: %zu/%zu cores ran to completion in one process\n", ran, ids.size());
     return ran == ids.size() ? 0 : 1;
+}
+
+// Directory holding the running core's read-only data (asset xmls, RmlUi documents). On desktop that
+// is the core's own directory. Android installs native libraries into a directory the app cannot put
+// data files in, so the Java side unpacks them elsewhere and names that directory here.
+std::string CoreDataDir(const std::string& corePath) {
+    if (const char* env = getenv("ZELDA3D_CORE_DATA_DIR"); env != nullptr && env[0] != '\0') {
+        return env;
+    }
+    std::string dir = corePath;
+    return dirname(dir.data());
 }
 
 void Usage() {
@@ -333,7 +350,11 @@ int main(int argc, char* argv[]) {
     // Game selection: first argument if it names one, else $ZELDA3D_GAME, else OoT. Consuming the
     // argument only when it IS a game id leaves every other argument for the core, so existing
     // command lines keep working through the launcher unchanged.
+#ifdef __ANDROID__
+    std::string game = "mm"; // the Android build ships only the MM core
+#else
     std::string game = "oot";
+#endif
     int gameArgc = argc;
     char** gameArgv = argv;
     if (const char* env = getenv("ZELDA3D_GAME"); env != nullptr && env[0] != '\0') {
@@ -363,10 +384,9 @@ int main(int argc, char* argv[]) {
         // saves resolve through SDL's OS user data directory; changing directory here no longer sends
         // them into the build tree or an AppImage mount.
         const std::string corePath = ResolveCorePath(*spec);
+        const std::string coreDataDir = CoreDataDir(corePath);
         {
-            std::string dir = corePath;
-            char* buf = dir.data();
-            if (chdir(dirname(buf)) != 0) {
+            if (chdir(coreDataDir.c_str()) != 0) {
                 fprintf(stderr, "ZELDA3D LAUNCHER: cannot enter the %s core's asset directory (%s).\n", spec->id,
                         corePath.c_str());
                 return 3;
@@ -384,7 +404,9 @@ int main(int argc, char* argv[]) {
         // no RmlUi assets and no extractor assets/ folder, so OoT aborted at startup reporting them
         // missing. dladdr on the entry point reports where the core was ACTUALLY loaded from,
         // following whatever ld.so resolved, rather than re-deriving a path that could disagree.
-        if (Dl_info info; dladdr(reinterpret_cast<void*>(core->run), &info) != 0 && info.dli_fname != nullptr) {
+        if (getenv("ZELDA3D_CORE_DATA_DIR") != nullptr) {
+            Ship::Context::SetAppBundlePath(coreDataDir);
+        } else if (Dl_info info; dladdr(reinterpret_cast<void*>(core->run), &info) != 0 && info.dli_fname != nullptr) {
             std::string dir = info.dli_fname;
             char* buf = dir.data();
             Ship::Context::SetAppBundlePath(dirname(buf));

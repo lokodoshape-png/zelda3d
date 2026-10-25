@@ -92,7 +92,24 @@ bool EnsureRomSetup(const std::filesystem::path& dataRoot) {
     }
 
     RomSelectionStore store(dataRoot);
-    const std::vector<RomKind> missing = store.ActivateConfiguredSelections();
+    std::vector<RomKind> missing = store.ActivateConfiguredSelections();
+#ifdef __ANDROID__
+    // The Android build ships only the MM core, so the OoT ROMs are never needed. Its Java activity
+    // picks the MM ROMs through Android's document picker and hands them over in the environment,
+    // because SDL's file dialog returns content:// URIs that std::filesystem cannot open.
+    std::erase_if(missing, [](RomKind kind) { return kind == RomKind::OotN64 || kind == RomKind::Oot3ds; });
+    if (!missing.empty()) {
+        std::string names;
+        for (const RomKind kind : missing) {
+            names += "\n- " + std::string(GetRomSpec(kind).label);
+        }
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Zelda3D — ROM missing",
+                                 ("Zelda3D could not use these ROMs:" + names +
+                                  "\n\nReopen the app and select them again.").c_str(),
+                                 nullptr);
+        return false;
+    }
+#endif
     if (missing.empty()) {
         return true;
     }

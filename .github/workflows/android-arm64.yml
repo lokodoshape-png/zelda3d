@@ -1,19 +1,26 @@
-name: Android ARM64 (MM core)
+name: Android ARM64 (MM)
 
-# Cross-compiles the MM game core (2ship + 2ship3d + libultraship) for Android arm64-v8a with the
-# NDK and vcpkg. This is the first step of the Android port: it only builds native libraries, no APK.
-# No ROM or game asset is used or produced here.
+# Builds the Majora's Mask side of Zelda3D for Android arm64-v8a and packages it as an APK:
+#   native       cross-compiles libmain.so (launcher), libmm_core.so and libultraship.so with the NDK
+#                and vcpkg (shared libraries, see packaging/android/triplets)
+#   port-archive builds the ROM-free 2ship.o2r on the Linux host, as the desktop bootstrap does
+#   apk          puts both in the Gradle project under packaging/android/project
+# No ROM or game asset is used or produced here: the app asks for the player's own ROMs on first run.
 
 on:
   push:
     branches: [android-arm64]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  build:
+  native:
     runs-on: ubuntu-24.04
     env:
-      VCPKG_TRIPLET: arm64-android
+      VCPKG_TRIPLET: arm64-android-zelda3d
+      VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/packaging/android/triplets
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-cache
       ANDROID_PLATFORM: android-29
     steps:
@@ -36,8 +43,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: vcpkg-cache
-          key: vcpkg-arm64-android-${{ hashFiles('.github/workflows/android-arm64.yml') }}
-          restore-keys: vcpkg-arm64-android-
+          key: vcpkg-${{ env.VCPKG_TRIPLET }}-${{ hashFiles('packaging/android/triplets/*.cmake') }}
+          restore-keys: vcpkg-${{ env.VCPKG_TRIPLET }}-
 
       - name: vcpkg dependencies
         run: |
@@ -50,6 +57,7 @@ jobs:
             "sdl3[vulkan]" libzip nlohmann-json tinyxml2 spdlog libogg libvorbis opus opusfile \
             freetype glslang libpng zlib bzip2 \
             || (find "$VCPKG_INSTALLATION_ROOT/buildtrees" -name '*-out.log' -newer "$VCPKG_INSTALLATION_ROOT/README.md" -exec tail -n 40 {} \; ; exit 1)
+          "$VCPKG_INSTALLATION_ROOT/vcpkg" list sdl3 --triplet "$VCPKG_TRIPLET" | tee sdl3-version.txt
 
       - name: Configure
         run: |
@@ -64,10 +72,21 @@ jobs:
             -DANDROID_STL=c++_shared \
             2>&1 | tee configure.log
 
-      - name: Build mm_core (keep going to collect every error)
+      - name: Build launcher and MM core (keep going to collect every error)
         run: |
           set -o pipefail
-          cmake --build build-android --target mm_core -j4 -- -k 0 2>&1 | tee build.log
+          cmake --build build-android --target zelda3d_app mm_core -j4 -- -k 0 2>&1 | tee build.log
+
+      - name: Collect shared libraries
+        run: |
+          set -e
+          mkdir -p out/jniLibs/arm64-v8a
+          find build-android -name '*.so' -not -path '*/CMakeFiles/*' -exec cp -v {} out/jniLibs/arm64-v8a/ \;
+          cp -v "$VCPKG_INSTALLATION_ROOT"/installed/"$VCPKG_TRIPLET"/lib/*.so out/jniLibs/arm64-v8a/
+          cp -v "$ANDROID_NDK_LATEST_HOME"/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so out/jniLibs/arm64-v8a/
+          sed -n 's/^sdl3:[^ ]* *\([0-9.]*\).*/\1/p' sdl3-version.txt | head -n1 > out/sdl3-version.txt
+          echo "SDL3 version: $(cat out/sdl3-version.txt)"
+          ls -la out/jniLibs/arm64-v8a
 
       - name: Error summary
         if: always()
@@ -83,7 +102,129 @@ jobs:
             build.log
 
       - uses: actions/upload-artifact@v4
-        if: success()
         with:
-          name: android-arm64-libs
-          path: build-android/**/*.so
+          name: android-arm64-native
+          path: out
+
+  port-archive:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Init build submodules (no decomp reference submodules)
+        run: git submodule update --init Shipwright/ZAPDTR Shipwright/libultraship/extern/StormLib
+
+      - name: Pinned Lucent source
+        run: |
+          git clone --no-checkout https://github.com/SomeoneIsWorking/lucent.git build/deps/lucent-source
+          git -C build/deps/lucent-source checkout --detach cac301db85b1f0aabdec8bdcf31a13cae560d8e2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.12"
+          python-version: "3.12"
+
+      - name: Install native Linux build dependencies
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          clang cmake ninja-build pkg-config
+          libpng-dev libzip-dev zipcmp zipmerge ziptool nlohmann-json3-dev libtinyxml2-dev libspdlog-dev
+          libopusfile-dev libogg-dev libvorbis-dev libfreetype-dev libbz2-dev zlib1g-dev
+          glslang-dev glslang-tools libgl-dev libgles-dev libx11-dev libxext-dev libxrandr-dev
+          libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev libwayland-dev
+          libxkbcommon-dev libasound2-dev libpulse-dev libudev-dev
+
+      - name: Build pinned SDL3
+        run: uv run --frozen python tools/prepare_ci_sdl.py
+
+      - name: Build 2ship.o2r (no ROM needed)
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          export CMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build/deps/sdl"
+          uv run --frozen python tools/build_mm_custom_archive.py \
+            --build-dir build/mm-custom-archive --output out/2ship.o2r --jobs 4
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-port-archive
+          path: out/2ship.o2r
+
+  apk:
+    needs: [native, port-archive]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-arm64-native
+          path: native
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-port-archive
+          path: port-archive
+
+      - name: Stage native libraries, SDL's Java activity and core data
+        run: |
+          set -e
+          app=packaging/android/project/app/src/main
+          mkdir -p "$app/jniLibs" "$app/java/org/libsdl/app" "$app/assets/mm/assets"
+          cp -r native/jniLibs/* "$app/jniLibs/"
+
+          sdl_version="$(cat native/sdl3-version.txt)"
+          git clone --depth 1 --branch "release-$sdl_version" https://github.com/libsdl-org/SDL.git sdl-src
+          cp sdl-src/android-project/app/src/main/java/org/libsdl/app/*.java "$app/java/org/libsdl/app/"
+
+          # Same layout the desktop build stages beside the core (2ship/CMakeLists.txt post-build).
+          cp -r 2ship/assets/extractor/. "$app/assets/mm/assets/"
+          cp -r 2ship/assets/xml "$app/assets/mm/assets/xml"
+          mkdir -p "$app/assets/mm/assets/symbols"
+          cp -r Shipwright/libultraship/assets/rml "$app/assets/mm/assets/rml"
+          cp port-archive/2ship.o2r "$app/assets/mm/2ship.o2r"
+
+      - name: Build APK
+        working-directory: packaging/android/project
+        run: gradle assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zelda3d-mm-android-debug
+          path: packaging/android/project/app/build/outputs/apk/debug/*.apk
+
+      - name: Publish release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          short_sha="${GITHUB_SHA::7}"
+          tag="android-build-${GITHUB_RUN_NUMBER}"
+          apk="zelda3d-mm-android-${short_sha}.apk"
+          cp packaging/android/project/app/build/outputs/apk/debug/*.apk "$apk"
+          cat > notes.md <<NOTES
+          Zelda3D (Majora's Mask com gráficos do MM3D) para Android arm64. **Experimental**: primeiro port, pode fechar ou ter falhas gráficas.
+
+          **Como instalar**
+          1. Baixe o arquivo \`$apk\` abaixo, em Assets, e instale no celular.
+          2. Ao abrir, escolha a sua ROM do Majora's Mask de N64 e depois a do Majora's Mask 3D (.3ds descriptografada).
+
+          As ROMs e os arquivos do jogo não fazem parte deste download.
+
+          Commit: ${GITHUB_SHA} (branch ${GITHUB_REF_NAME})
+          NOTES
+          gh release create "$tag" "$apk" --target "$GITHUB_SHA" \
+            --title "Zelda3D MM Android - build ${GITHUB_RUN_NUMBER} (${short_sha})" \
+            --notes-file notes.md --prerelease
