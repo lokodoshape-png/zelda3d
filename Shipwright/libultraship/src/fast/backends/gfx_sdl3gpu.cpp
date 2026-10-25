@@ -57,6 +57,9 @@
 #include <string>
 #include <vector>
 #include <spdlog/spdlog.h>
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
 
 // Zelda3D frame-dump globals (defined in gfx_sdl2.cpp). The REPL sets these to capture the current
 // frame on demand; we honor them from the present path (reading fb 0, which works headless).
@@ -810,11 +813,21 @@ void GfxRenderingAPISdl3Gpu::CreateDeviceAndClaim() {
     bool debug = dbg != nullptr && dbg[0] == '1';
     mDevice = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, debug, nullptr);
     if (mDevice == nullptr) {
-        SPDLOG_ERROR("SDL_CreateGPUDevice failed: {}", SDL_GetError());
+        const char* err = SDL_GetError();
+        SPDLOG_ERROR("SDL_CreateGPUDevice failed: {}", err);
+#ifdef __ANDROID__
+        __android_log_print(ANDROID_LOG_ERROR, "Zelda3D_GPU",
+                            "SDL_CreateGPUDevice failed: %s", err ? err : "(sem detalhe)");
+#endif
         abort();
     }
     if (!SDL_ClaimWindowForGPUDevice(mDevice, mWindow)) {
-        SPDLOG_ERROR("SDL_ClaimWindowForGPUDevice failed: {}", SDL_GetError());
+        const char* err = SDL_GetError();
+        SPDLOG_ERROR("SDL_ClaimWindowForGPUDevice failed: {}", err);
+#ifdef __ANDROID__
+        __android_log_print(ANDROID_LOG_ERROR, "Zelda3D_GPU",
+                            "SDL_ClaimWindowForGPUDevice failed: %s", err ? err : "(sem detalhe)");
+#endif
         abort();
     }
     sGpuWindowClaims++;
